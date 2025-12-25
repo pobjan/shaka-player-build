@@ -32,15 +32,22 @@ jobs:
       - name: Ensure tags & git state (safety for git describe)
         run: |
           set -euo pipefail
+      
           echo "Git HEAD: $(git rev-parse --short HEAD)"
+          echo "Configuring git committer identity for CI..."
+          # ustawiamy lokalny (repo) user.name i user.email, nie globalnie
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+      
           echo "Checking tags..."
           if git describe --tags --long >/dev/null 2>&1; then
             echo "git describe: $(git describe --tags --long)"
           else
-            echo "No tags found in this repo. Creating a temporary tag for CI to avoid build errors."
-            git tag -a ci-temp-$(date +%s) -m "ci temporary tag"
+            echo "No tags found in this repo. Creating a temporary annotated tag for CI to avoid build errors."
+            git tag -a "ci-temp-$(date +%s)" -m "ci temporary tag"
             echo "Created tag: $(git describe --tags --long)"
           fi
+      
           echo "Listing last 20 tags (if any):"
           git tag -l | tail -n 20 || true
 
