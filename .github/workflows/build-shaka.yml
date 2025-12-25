@@ -12,16 +12,16 @@ jobs:
     name: Build custom Shaka Player
     runs-on: ubuntu-latest
     env:
-      # zwiększamy pamięć node (czasem potrzebne przy dużych buildach)
       NODE_OPTIONS: --max-old-space-size=4096
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (with full history & tags)
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
+          fetch-depth: 0       # <- fetch all history + tags (potrzebne do `git describe`)
 
-      - name: Setup Java (required for Closure Compiler and some build steps)
+      - name: Setup Java (required for Closure Compiler / build tools)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,10 +30,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'     # możesz zmienić na 20 jeśli wolisz
+          node-version: '18'
           cache: 'npm'
 
-      - name: Ensure python3 is available
+      - name: Ensure python3 and pip are available
         run: |
           python3 --version
           python3 -m pip --version || python3 -m ensurepip --upgrade
@@ -41,7 +41,6 @@ jobs:
 
       - name: Install npm dependencies
         run: |
-          # If your repo has package-lock.json prefer `npm ci`
           if [ -f package-lock.json ]; then
             npm ci
           else
@@ -50,19 +49,17 @@ jobs:
 
       - name: (Optional) Install Python build deps if present
         run: |
-          # Jeśli w katalogu build jest requirements.txt, spróbujemy je zainstalować.
-          # Nie przerywamy workflow jeśli plik nie istnieje.
           if [ -f build/requirements.txt ]; then
             python3 -m pip install -r build/requirements.txt
           fi
 
       - name: Run Shaka build (custom modules)
-        # tu przekazujemy flagi tak, jak prosiłeś: nazwa buildu +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
         run: |
           set -e
-          # Używamy build/all.py (skrypt buildowy Shaka). Jeśli w Twoim fork-u
-          # jest inny plik (np. build/build.py), zastąp ścieżkę odpowiednio.
-          python3 build/all.py --name custom +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
+          # Użyjemy build/build.py (akceptuje --name oraz składnię +@ / -@)
+          # Przykładowe flagi: --name custom +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
+          # Dodaj --force jeśli chcesz wymusić przebudowę.
+          python3 build/build.py --force --name custom +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
 
       - name: Show dist contents (diagnostics)
         run: |
