@@ -62,7 +62,7 @@ jobs:
           set -e
           # Używamy build/all.py (skrypt buildowy Shaka). Jeśli w Twoim fork-u
           # jest inny plik (np. build/build.py), zastąp ścieżkę odpowiednio.
-          python3 build/all.py --force --name custom +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
+          python3 build/all.py --name custom +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
 
       - name: Show dist contents (diagnostics)
         run: |
