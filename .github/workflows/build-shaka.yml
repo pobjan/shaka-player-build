@@ -69,7 +69,7 @@ jobs:
           # UWAGA: poprawione flagi modułów — każdy moduł musi zaczynać się od + lub -
           # Jeśli chcesz aby polyfill był dołączony — użyj +@polyfillForUI
           # Jeśli chcesz go wykluczyć — użyj -@polyfillForUI
-          python3 build/build.py --force --name custom +@complete -@ui -@polyfillForUI -@offline -@cast -@ads -@drm --locales none
+          python3 build/build.py --name custom +@complete -@ui -@polyfillForUI -@offline -@cast -@ads --mode release --force --langout --skip-ts --locales none
 
       - name: Show dist contents (diagnostics)
         run: |
