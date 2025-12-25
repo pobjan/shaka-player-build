@@ -1,15 +1,20 @@
+# .github/workflows/build-shaka.yml
 name: Build Shaka Player (custom)
 
+# Uruchamiaj ręcznie lub przy push na main — dopasuj do potrzeb.
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   push:
-    branches: [ main ]
+    branches:
+      - main
 
+# Token ma domyślne, ograniczone uprawnienia; do prostego buildu wystarczy contents: write
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  build:
+  build-shaka:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -18,38 +23,63 @@ jobs:
       OUT_FILE: shaka-player.custom.js
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (full history & tags)
         uses: actions/checkout@v4
+        with:
+          # ważne — pobiera całą historię i tagi, bez tego 'git describe' może zwracać błąd
+          fetch-depth: 0
+
+      - name: Ensure tags & git state (safety for git describe)
+        run: |
+          set -euo pipefail
+          echo "Git HEAD: $(git rev-parse --short HEAD)"
+          echo "Checking tags..."
+          if git describe --tags --long >/dev/null 2>&1; then
+            echo "git describe: $(git describe --tags --long)"
+          else
+            echo "No tags found in this repo. Creating a temporary tag for CI to avoid build errors."
+            git tag -a ci-temp-$(date +%s) -m "ci temporary tag"
+            echo "Created tag: $(git describe --tags --long)"
+          fi
+          echo "Listing last 20 tags (if any):"
+          git tag -l | tail -n 20 || true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: '18'
 
-      - name: Setup Java (for Closure Compiler)
+      - name: Setup Java (Temurin JDK) for Closure Compiler
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 17
+          distribution: 'temurin'
+          java-version: '17'
 
       - name: Show tool versions
         run: |
-          node -v
-          npm -v
-          python3 --version
-          java -version
+          node -v || true
+          npm -v || true
+          python3 --version || true
+          java -version || true
 
-      - name: Install npm dependencies (if needed)
-        if: hashFiles('package.json') != ''
-        run: npm ci
+      - name: Install npm deps (if package.json present)
+        run: |
+          set -euo pipefail
+          if [ -f package.json ]; then
+            echo "package.json found — running npm ci"
+            npm ci
+          else
+            echo "No package.json — skipping npm install"
+          fi
 
-      - name: Create dist directory
-        run: mkdir -p $OUT_DIR
+      - name: Ensure output dir
+        run: mkdir -p "$OUT_DIR"
 
       - name: Build Shaka Player (custom flags)
         run: |
-          set -e
-
+          set -euo pipefail
+          echo "Running Shaka build..."
+          # Uruchamiamy build tak, jak w all.py -> wariant custom (DASH/HLS features zależne od +@complete)
           python3 build/build.py \
             --name custom \
             +@complete \
@@ -59,21 +89,38 @@ jobs:
             -@offline \
             -@cast \
             -@ads \
-            --mode release
+            --mode release \
+            --force || {
+              echo "Build script returned non-zero status"; exit 1;
+            }
 
-          # znajdź wygenerowany plik i skopiuj do ustalonej nazwy
-          BUILT_FILE=$(ls -1t dist/*shaka-player*.js | head -n 1)
-
+          # Znajdź najnowszy plik builda i skopiuj go do ustalonej nazwy.
+          BUILT_FILE=$(ls -1t dist/*shaka-player*.js 2>/dev/null | head -n 1 || true)
           if [ -z "$BUILT_FILE" ]; then
-            echo "❌ Build failed: no output JS file found"
+            echo "❌ Build failed: no output JS file found in dist/"
+            echo "dist/ content:"
+            ls -la dist || true
             exit 1
           fi
 
+          echo "Found built file: $BUILT_FILE"
           cp "$BUILT_FILE" "$OUT_DIR/$OUT_FILE"
-          echo "✅ Output: $OUT_DIR/$OUT_FILE"
+          echo "✅ Copied build to $OUT_DIR/$OUT_FILE"
+          echo "File size:"
+          ls -lh "$OUT_DIR/$OUT_FILE"
 
-      - name: Upload artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: shaka-player-custom-build
-          path: dist/
+          path: ${{ env.OUT_DIR }}/
+
+      # opcjonalne: automatyczne publikowanie Release (odkomentuj jeśli chcesz)
+      # - name: Create GitHub Release (optional)
+      #   uses: softprops/action-gh-release@v1
+      #   with:
+      #     tag_name: build-${{ github.run_number }}
+      #     name: "shaka-player.custom.js build #${{ github.run_number }}"
+      #     files: dist/${{ env.OUT_FILE }}
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
