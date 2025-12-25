@@ -19,7 +19,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-          fetch-depth: 0       # <- fetch all history + tags (potrzebne do `git describe`)
+          fetch-depth: 0
+
+      - name: Ensure there is at least one git tag (avoid `git describe` fatal)
+        run: |
+          # Jeśli repo nie ma tagów, stwórzmy lokalny tymczasowy tag, by git describe nie padało.
+          if [ -z "$(git tag)" ]; then
+            echo "No tags found — creating temporary tag ci-temp"
+            git tag ci-temp
+          else
+            echo "Tags present: $(git tag | head -n 5 || true)"
+          fi
 
       - name: Setup Java (required for Closure Compiler / build tools)
         uses: actions/setup-java@v4
@@ -56,10 +66,10 @@ jobs:
       - name: Run Shaka build (custom modules)
         run: |
           set -e
-          # Użyjemy build/build.py (akceptuje --name oraz składnię +@ / -@)
-          # Przykładowe flagi: --name custom +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
-          # Dodaj --force jeśli chcesz wymusić przebudowę.
-          python3 build/build.py --force --name custom +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
+          # UWAGA: poprawione flagi modułów — każdy moduł musi zaczynać się od + lub -
+          # Jeśli chcesz aby polyfill był dołączony — użyj +@polyfillForUI
+          # Jeśli chcesz go wykluczyć — użyj -@polyfillForUI
+          python3 build/build.py --force --name custom +@complete -@ui -@polyfillForUI -@mss -@offline -@cast -@ads
 
       - name: Show dist contents (diagnostics)
         run: |
