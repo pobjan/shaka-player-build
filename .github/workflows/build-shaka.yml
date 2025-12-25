@@ -1,133 +1,77 @@
-# .github/workflows/build-shaka.yml
 name: Build Shaka Player (custom)
 
-# Uruchamiaj ręcznie lub przy push na main — dopasuj do potrzeb.
 on:
   workflow_dispatch: {}
   push:
     branches:
       - main
-
-# Token ma domyślne, ograniczone uprawnienia; do prostego buildu wystarczy contents: write
-permissions:
-  contents: write
-  pull-requests: write
+      - master
 
 jobs:
-  build-shaka:
+  build:
+    name: Build custom Shaka Player
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-
     env:
-      OUT_DIR: dist
-      OUT_FILE: shaka-player.custom.js
+      # zwiększamy pamięć node (czasem potrzebne przy dużych buildach)
+      NODE_OPTIONS: --max-old-space-size=4096
 
     steps:
-      - name: Checkout repository (full history & tags)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # ważne — pobiera całą historię i tagi, bez tego 'git describe' może zwracać błąd
-          fetch-depth: 0
+          submodules: 'recursive'
 
-      - name: Ensure tags & git state (safety for git describe)
-        run: |
-          set -euo pipefail
-      
-          echo "Git HEAD: $(git rev-parse --short HEAD)"
-          echo "Configuring git committer identity for CI..."
-          # ustawiamy lokalny (repo) user.name i user.email, nie globalnie
-          git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
-      
-          echo "Checking tags..."
-          if git describe --tags --long >/dev/null 2>&1; then
-            echo "git describe: $(git describe --tags --long)"
-          else
-            echo "No tags found in this repo. Creating a temporary annotated tag for CI to avoid build errors."
-            git tag -a "ci-temp-$(date +%s)" -m "ci temporary tag"
-            echo "Created tag: $(git describe --tags --long)"
-          fi
-      
-          echo "Listing last 20 tags (if any):"
-          git tag -l | tail -n 20 || true
+      - name: Setup Java (required for Closure Compiler and some build steps)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '18'     # możesz zmienić na 20 jeśli wolisz
+          cache: 'npm'
 
-      - name: Setup Java (Temurin JDK) for Closure Compiler
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Show tool versions
+      - name: Ensure python3 is available
         run: |
-          node -v || true
-          npm -v || true
-          python3 --version || true
-          java -version || true
+          python3 --version
+          python3 -m pip --version || python3 -m ensurepip --upgrade
+          python3 -m pip install --upgrade pip
 
-      - name: Install npm deps (if package.json present)
+      - name: Install npm dependencies
         run: |
-          set -euo pipefail
-          if [ -f package.json ]; then
-            echo "package.json found — running npm ci"
+          # If your repo has package-lock.json prefer `npm ci`
+          if [ -f package-lock.json ]; then
             npm ci
           else
-            echo "No package.json — skipping npm install"
+            npm install
           fi
 
-      - name: Ensure output dir
-        run: mkdir -p "$OUT_DIR"
-
-      - name: Build Shaka Player (custom flags)
+      - name: (Optional) Install Python build deps if present
         run: |
-          set -euo pipefail
-          echo "Running Shaka build..."
-          # Uruchamiamy build tak, jak w all.py -> wariant custom (DASH/HLS features zależne od +@complete)
-          python3 build/build.py \
-            --name custom \
-            +@complete \
-            -@ui \
-            -@polyfillForUI \
-            -@mss \
-            -@offline \
-            -@cast \
-            -@ads \
-            --mode release \
-            --force || {
-              echo "Build script returned non-zero status"; exit 1;
-            }
-
-          # Znajdź najnowszy plik builda i skopiuj go do ustalonej nazwy.
-          BUILT_FILE=$(ls -1t dist/*shaka-player*.js 2>/dev/null | head -n 1 || true)
-          if [ -z "$BUILT_FILE" ]; then
-            echo "❌ Build failed: no output JS file found in dist/"
-            echo "dist/ content:"
-            ls -la dist || true
-            exit 1
+          # Jeśli w katalogu build jest requirements.txt, spróbujemy je zainstalować.
+          # Nie przerywamy workflow jeśli plik nie istnieje.
+          if [ -f build/requirements.txt ]; then
+            python3 -m pip install -r build/requirements.txt
           fi
 
-          echo "Found built file: $BUILT_FILE"
-          cp "$BUILT_FILE" "$OUT_DIR/$OUT_FILE"
-          echo "✅ Copied build to $OUT_DIR/$OUT_FILE"
-          echo "File size:"
-          ls -lh "$OUT_DIR/$OUT_FILE"
+      - name: Run Shaka build (custom modules)
+        # tu przekazujemy flagi tak, jak prosiłeś: nazwa buildu +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
+        run: |
+          set -e
+          # Używamy build/all.py (skrypt buildowy Shaka). Jeśli w Twoim fork-u
+          # jest inny plik (np. build/build.py), zastąp ścieżkę odpowiednio.
+          python3 build/all.py --force --name custom +@complete -@ui @polyfillForUI -@mss -@offline -@cast -@ads
 
-      - name: Upload build artifact
+      - name: Show dist contents (diagnostics)
+        run: |
+          echo "Dist folder listing:"
+          ls -al dist || true
+
+      - name: Upload built artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: shaka-player-custom-build
-          path: ${{ env.OUT_DIR }}/
-
-      # opcjonalne: automatyczne publikowanie Release (odkomentuj jeśli chcesz)
-      # - name: Create GitHub Release (optional)
-      #   uses: softprops/action-gh-release@v1
-      #   with:
-      #     tag_name: build-${{ github.run_number }}
-      #     name: "shaka-player.custom.js build #${{ github.run_number }}"
-      #     files: dist/${{ env.OUT_FILE }}
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: shaka-player-dist
+          path: |
+            dist/**
