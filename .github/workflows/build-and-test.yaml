@@ -1,6 +1,6 @@
 name: Build and Test
 
-on:
+_on:
   pull_request: # Trigger for pull requests.
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
